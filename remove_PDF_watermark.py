@@ -68,7 +68,7 @@ def main(args):
 	fp = mmap.mmap(filepointer.fileno(), 0)
 	
 	# PDF version number
-	pdf_version =  fp.readline().replace('%PDF-','').replace('\n','')
+	pdf_version =  fp.readline().replace('%PDF-','').rstrip()
 	print "[*] File has PDF version '{}'".format(pdf_version)
 
 	# seek to end
@@ -94,100 +94,110 @@ def main(args):
 
 	# check for multiple xref sections
 	startxref_pos = 0
-	while startxref_pos != -1:
-		startxref_pos = fp.find('startxref',startxref_pos+1)
-		print "found startxref at {0}".format(startxref_pos)
-
-	sys.exit()
-
-	tmp = ''
-	while fp.tell() != 0:
-		fp.seek(-2,1)
-		print '{0}\r'.format(fp.tell()),
-		tmp = fp.read(1) + tmp
-		if tmp[0:9] == 'startxref':
-			print "[!] startxref found at {}".format(fp.tell())
-	
-	# readline twice (once for startxref) to get the offset of xref
-	fp.readline()
-	xref_offset = (int)(fp.readline().rstrip())
-	print "[+] Reported xref offset: {0}".format(xref_offset)
-	
-	# seek to the start of xref
-	fp.seek(xref_offset, 0)
-
-	# ensure the line is the 'xref' tag
-	xref_string = fp.readline().rstrip()
-	if (xref_string != 'xref'):
-		print "[-] Error, xref not found at offset, found '{0}'".format(xref_string)
-		sys.exit()
-		
-	print "[+] Reading xref table..."
-	
-	# next line is number of objects
-	object_count = fp.readline().split()[1]
-	
-	# readline until string is 'trailer'
-	pdf_objects = []
-	line = ''
-	while (line != 'trailer'):
-		xref_current = fp.tell()
-		line = fp.readline().rstrip()
-		if line == 'trailer':
+	startxref_list = []
+	while True:
+		tmp = fp.find('startxref',startxref_pos+1)
+		if tmp == -1:
 			break;
-			
-		# test if the cross reference is single or double subsection
-		try:
-			[offset, version, inuse] = line.split()
-		except:
-			print "[-] Error reading line:"
-			print "[-] Expecting [offset, version, inuse], found '{}'".format(line)
-			#sys.exit()
-			continue
-			
-		pdf_objects.append([offset, inuse, xref_current])
-		
-	print "[+] Done, xref object count: {0}, actual count: {1}".format(object_count, len(pdf_objects))
-	
-	found_objects = 0
-	byte_count = 0
-	# read each object
-	for idx, obj in enumerate(pdf_objects):
-		offset,inuse,xref_pointer = obj
-		
-		if obj[1] == 'f':
-			print "[+] Object {0} not in use, skipping".format(idx)
-			continue
-		#else:
-		#	print "Reading object {0} at offset {1}".format(idx, offset)
-		#	pass
-			
-		fp.seek(int(offset), 0)
-		obj_string = ''
-		sys.stdout.write('.')
-		sys.stdout.flush()
-		
-		# readline until endobj is found
-		while True:
-			tmp = fp.readline()
-			obj_string += tmp
+		else:
+			print "[+] Found startxref at {0}".format(tmp)
+			startxref_pos = tmp
+			startxref_list.append(tmp)
 
-			if tmp.rstrip() == 'endobj':
-				break
+	xref_offset = startxref_pos
+	#sys.exit()
+
+	#tmp = ''
+	#while fp.tell() != 0:
+	#	fp.seek(-2,1)
+	#	print '{0}\r'.format(fp.tell()),
+	#	tmp = fp.read(1) + tmp
+	#	if tmp[0:9] == 'startxref':
+	#		print "[!] startxref found at {}".format(fp.tell())
+	
+	for xref_offset in startxref_list:
+		fp.seek(xref_offset,0)
+		# readline twice (once for startxref) to get the offset of xref
+		fp.readline()
+		xref_offset = (int)(fp.readline().rstrip())
+		print "[+] Reported startxref offset: {0}".format(xref_offset)
 		
-		# check for our string!
-		if 'it-ebooks' in obj_string:
-			#print "Found string in object #{0}".format(idx)
-			sys.stdout.write('x')
-			found_objects += 1
-			byte_count += len(obj_string)
-			# mark the object as 'not in use' (f)
-			# go to xref position, readline, go back three bytes ('n' and two-byte-eol) and write an 'f'
-			fp.seek(int(xref_pointer),0)
-			#fp.readline()
-			#fp.seek(-3,1)
-			#fp.write_byte("f")
-			fp.write("0000000000 65535 f \n")
+		# seek to the start of xref
+		fp.seek(xref_offset, 0)
+
+		# ensure the line is the 'xref' tag
+		xref_string = fp.readline().rstrip()
+		if (xref_string != 'xref'):
+			print "[-] Error, xref not found at offset, found '{0}'".format(xref_string)
+			sys.exit()
+			
+		print "[+] Reading xref table..."
+		
+		# next line is number of objects
+		object_count = fp.readline().split()[1]
+		
+		# readline until string is 'trailer'
+		pdf_objects = []
+		line = ''
+		while (line != 'trailer'):
+			xref_current = fp.tell()
+			line = fp.readline().rstrip()
+			if line == 'trailer':
+				break;
+				
+			# test if the cross reference is single or double subsection
+			try:
+				[offset, version, inuse] = line.split()
+			except:
+				print "[-] Error reading line:"
+				print "[-] Expecting [offset, version, inuse], found '{}'".format(line)
+				#sys.exit()
+				continue
+				
+			pdf_objects.append([offset, inuse, xref_current])
+			
+		print "[+] Done, xref object count: {0}, actual count: {1}".format(object_count, len(pdf_objects))
+		
+		found_objects = 0
+		byte_count = 0
+		# read each object
+		for idx, obj in enumerate(pdf_objects):
+			offset,inuse,xref_pointer = obj
+			
+			if obj[1] == 'f':
+				print "[+] Object {0} not in use, skipping".format(idx)
+				continue
+			#else:
+			#	print "Reading object {0} at offset {1}".format(idx, offset)
+			#	pass
+				
+			fp.seek(int(offset), 0)
+			obj_string = ''
+			sys.stdout.write('.')
+			sys.stdout.flush()
+			
+			# readline until endobj is found
+			while True:
+				tmp = fp.readline()
+				obj_string += tmp
+
+				if tmp.rstrip() == 'endobj':
+					break
+			
+			# check for our string!
+			if 'it-ebooks' in obj_string:
+				#print "Found string in object #{0}".format(idx)
+				sys.stdout.write('x')
+				found_objects += 1
+				byte_count += len(obj_string)
+				# mark the object as 'not in use' (f)
+				# go to xref position, readline, go back three bytes ('n' and two-byte-eol) and write an 'f'
+				fp.seek(int(xref_pointer),0)
+				#fp.readline()
+				#fp.seek(-3,1)
+				#fp.write_byte("f")
+				fp.write("0000000000 65535 f \n")
+		print ""
 
 	print "\n[+] Finished"
 	print "[*] Matching object count: {0}".format(found_objects)
