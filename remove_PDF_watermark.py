@@ -16,6 +16,7 @@ Using information from:
 https://blog.idrsolutions.com/2010/09/grow-your-own-pdf-file-part-2-structure-of-a-pdf-file/
 https://blog.idrsolutions.com/2011/05/understanding-the-pdf-file-format-%E2%80%93-pdf-xref-tables-explained/
 https://stuff.mit.edu/afs/sipb/contrib/doc/specs/software/adobe/pdf/PDFReference16-v4.pdf
+http://www.mactech.com/articles/mactech/Vol.15/15.09/PDFIntro/index.html
 
 Notes:
 [Header]:
@@ -107,20 +108,23 @@ def main(args):
 	xref_offset = startxref_pos
 	#sys.exit()
 
-	#tmp = ''
-	#while fp.tell() != 0:
-	#	fp.seek(-2,1)
-	#	print '{0}\r'.format(fp.tell()),
-	#	tmp = fp.read(1) + tmp
-	#	if tmp[0:9] == 'startxref':
-	#		print "[!] startxref found at {}".format(fp.tell())
-	
+	'''
+	tmp = ''
+	while fp.tell() != 0:
+		fp.seek(-2,1)
+		print '{0}\r'.format(fp.tell()),
+		tmp = fp.read(1) + tmp
+		if tmp[0:9] == 'startxref':
+			print "[!] Last startxref found at {}".format(fp.tell())
+	'''
+
+	# Loop through xref tables
 	for xref_offset in startxref_list:
 		fp.seek(xref_offset,0)
 		# readline twice (once for startxref) to get the offset of xref
 		fp.readline()
 		xref_offset = (int)(fp.readline().rstrip())
-		print "[+] Reported startxref offset: {0}".format(xref_offset)
+		print "[+] Reported xref offset: {0}".format(xref_offset)
 		
 		# seek to the start of xref
 		fp.seek(xref_offset, 0)
@@ -143,7 +147,8 @@ def main(args):
 			xref_current = fp.tell()
 			line = fp.readline().rstrip()
 			if line == 'trailer':
-				break;
+				print "[+] trailer found, end section"
+				break
 				
 			# test if the cross reference is single or double subsection
 			try:
@@ -160,12 +165,19 @@ def main(args):
 		
 		found_objects = 0
 		byte_count = 0
+		previous_f = -1
 		# read each object
 		for idx, obj in enumerate(pdf_objects):
 			offset,inuse,xref_pointer = obj
 			
 			if obj[1] == 'f':
+				if idx == 0:
+					previous_f = 0
+				else:
+					previous_f = idx
 				print "[+] Object {0} not in use, skipping".format(idx)
+				# TODO
+				# update previous 'f' to point to this object number and set this to index 0
 				continue
 			#else:
 			#	print "Reading object {0} at offset {1}".format(idx, offset)
@@ -185,18 +197,31 @@ def main(args):
 					break
 			
 			# check for our string!
-			if 'it-ebooks' in obj_string:
+			if 'www.it-ebooks.info' in obj_string:
+				# don't change if it's the catalogue
+				if 'Title' in obj_string:
+					sys.stdout.write('T')
+					continue
+
 				#print "Found string in object #{0}".format(idx)
 				sys.stdout.write('x')
 				found_objects += 1
 				byte_count += len(obj_string)
+				
+				# update previous 'f' to point to this object number and set this to index 0
+				# (a,b,c) = (object location, in use, xref table location)
+				[a,b,c] = pdf_objects[previous_f]
+				fp.seek(int(c),0)
+				fp.write("{0:010d} 00001 f".format(idx))
+
 				# mark the object as 'not in use' (f)
 				# go to xref position, readline, go back three bytes ('n' and two-byte-eol) and write an 'f'
 				fp.seek(int(xref_pointer),0)
 				#fp.readline()
 				#fp.seek(-3,1)
 				#fp.write_byte("f")
-				fp.write("0000000000 65535 f \n")
+				fp.write("0000000000 00001 f")
+				previous_f = idx
 		print ""
 
 	print "\n[+] Finished"
